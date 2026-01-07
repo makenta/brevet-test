@@ -3,95 +3,200 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPS記録</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+    <title>チェックポイント記録</title>
     <style>
-        #overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); color: white; text-align: center; padding-top: 50%; z-index: 1000; }
-        .success { color: #2ecc71; font-weight: bold; }
-        .warning { color: #e67e22; }
+        body { font-family: sans-serif; padding: 20px; max-width: 600px; margin: 0 auto; background-color: #f9f9f9;}
+        h2 { margin-bottom: 10px; border-bottom: 2px solid #ddd; padding-bottom: 10px;}
+        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        
+        #btn-record { 
+            width: 100%; padding: 20px; font-size: 1.2em; font-weight: bold;
+            background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; 
+        }
+        #btn-record:disabled { background-color: #999; cursor: not-allowed; }
+        
+        .status-msg { margin-top: 10px; font-weight: bold; min-height: 1.5em; white-space: pre-wrap;}
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .warn { color: #856404; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border-bottom: 1px solid #eee; padding: 10px; text-align: left; }
+        th { background-color: #f1f1f1; }
+
+        /* ローディングオーバーレイ */
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8); z-index: 999;
+            display: none; align-items: center; justify-content: center;
+            font-size: 1.5em; color: #333; font-weight: bold;
+        }
     </style>
 </head>
 <body>
-    <div id="overlay">通信中...</div>
-    <h2 id="user-display">参加者：</h2>
-    
-    <button id="record-btn" style="width: 100%; height: 80px; font-size: 1.2rem;">
-        📍 現在地を確認して記録
-    </button>
 
-    <div id="status-message" style="margin-top: 20px; padding: 10px; border-radius: 5px;"></div>
+    <div id="overlay">
+        <div>通信中...<br><small style="font-size:0.6em">画面を閉じないでください</small></div>
+    </div>
 
-    <hr>
-    <h3>通過済みリスト</h3>
-    <ul id="history-list"></ul>
+    <div class="card">
+        <div>参加者： <strong id="user-name-display">---</strong></div>
+        <div><a href="index.html" style="font-size:0.8em;">(変更)</a></div>
+    </div>
+
+    <div class="card">
+        <button id="btn-record" onclick="handleRecord()">
+            📍 現在地を確認して<br>チェックポイントを記録
+        </button>
+        <div id="result-area" class="status-msg"></div>
+    </div>
+
+    <div class="card">
+        <h3>🏆 通過リスト</h3>
+        <table>
+            <thead>
+                <tr><th>場所</th><th>通過時刻</th></tr>
+            </thead>
+            <tbody id="pass-list">
+                <tr><td colspan="2">読み込み中...</td></tr>
+            </tbody>
+        </table>
+    </div>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbxnEonj0ndo66DPBvYGYUG6KfLXT0L9XaljImeMLgP3Uxy1xFtyPnR-tSZ7BlLSvFfC/exec";
-        const urlParams = new URLSearchParams(window.location.search);
-        const userName = urlParams.get('user');
+        // ★index.htmlと同じURLを設定してください
+        const GAS_API_URL = "https://script.google.com/macros/s/xxxxxxxxx/exec";
 
-        document.getElementById('user-display').textContent = `参加者：${userName}`;
+        const params = new URLSearchParams(window.location.search);
+        const userName = params.get('user');
 
-        async function fetchStatus() {
-            const res = await fetch(`${GAS_URL}?action=getStatus&user=${encodeURIComponent(userName)}`);
-            const data = await res.json();
-            const list = document.getElementById('history-list');
-            list.innerHTML = "";
-            data.forEach(item => {
-                const li = document.createElement('li');
-                li.textContent = `${item.time} - ${item.name}`;
-                list.appendChild(li);
-            });
+        if (!userName) {
+            alert('参加者が指定されていません。トップに戻ります。');
+            window.location.href = 'index.html';
         }
 
-        document.getElementById('record-btn').onclick = () => {
-            document.getElementById('overlay').style.display = 'block';
+        document.getElementById('user-name-display').textContent = userName;
+
+        // 初期ロード時にリスト取得
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchStatus();
+        });
+
+        // 記録ボタン押下時の処理
+        function handleRecord() {
+            const resultArea = document.getElementById('result-area');
+            resultArea.textContent = 'GPS測位中...';
+            resultArea.className = 'status-msg';
+
+            if (!navigator.geolocation) {
+                resultArea.textContent = 'エラー: お使いの端末はGPSに対応していません。';
+                resultArea.className = 'status-msg error';
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude, accuracy } = position.coords;
+                    
+                    // 精度チェック (仕様: 1000m以上は警告)
+                    if (accuracy > 1000) {
+                        const proceed = confirm(`GPS精度が低すぎます（誤差約 ${Math.round(accuracy)}m）。\nそれでも送信しますか？`);
+                        if (!proceed) {
+                            resultArea.textContent = '送信をキャンセルしました。';
+                            return;
+                        }
+                    }
+
+                    // 送信処理へ
+                    sendToGas(latitude, longitude, accuracy);
+                },
+                (error) => {
+                    let errMsg = 'GPSエラー: ';
+                    switch(error.code) {
+                        case 1: errMsg += '位置情報の利用が許可されていません。'; break;
+                        case 2: errMsg += '位置情報が取得できませんでした。'; break;
+                        case 3: errMsg += 'タイムアウトしました。'; break;
+                        default: errMsg += error.message;
+                    }
+                    resultArea.textContent = errMsg;
+                    resultArea.className = 'status-msg error';
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+
+        async function sendToGas(lat, lng, accuracy) {
+            const overlay = document.getElementById('overlay');
+            const resultArea = document.getElementById('result-area');
             
-            navigator.geolocation.getCurrentPosition(async (pos) => {
-                const { latitude, longitude, accuracy } = pos.coords;
+            overlay.style.display = 'flex'; // ロック開始
+
+            try {
+                const payload = {
+                    action: 'recordPass',
+                    user: userName,
+                    gps: { lat: lat, lng: lng, accuracy: accuracy }
+                };
+
+                // CORS回避のため no-cors は使わず、標準のPOSTでGASのリダイレクトに従う
+                const response = await fetch(GAS_API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
                 
-                if (accuracy > 1000) {
-                    alert("GPSの精度が低すぎます（誤差1km以上）。少し移動して再試行してください。");
-                    document.getElementById('overlay').style.display = 'none';
-                    return;
+                const data = await response.json();
+
+                if (data.status === 'ok') {
+                    resultArea.textContent = `🎉 チェックポイント『${data.checkpointName}』を通過しました！\n(距離: ${data.distance}m)`;
+                    resultArea.className = 'status-msg success';
+                    fetchStatus(); // リスト更新
+                } else if (data.status === 'far') {
+                    // checkpintNameが存在する場合は「一番近い場所」の情報
+                    if (data.checkpointName) {
+                        resultArea.textContent = `📍 近くにチェックポイントがありません。\n(最も近い『${data.checkpointName}』まであと ${data.distance}m です)`;
+                    } else {
+                        resultArea.textContent = `📍 近くにチェックポイントがありません。`;
+                    }
+                    resultArea.className = 'status-msg warn';
+                } else {
+                    throw new Error(data.message || '不明なエラー');
                 }
 
-                try {
-                    const res = await fetch(GAS_URL, {
-                        method: "POST",
-                        body: JSON.stringify({
-                            action: "recordPass",
-                            user: userName,
-                            lat: latitude,
-                            lng: longitude
-                        })
-                    });
-                    const result = await res.json();
-                    displayResult(result);
-                    fetchStatus();
-                } catch (e) {
-                    alert("通信エラーが発生しました。");
-                } finally {
-                    document.getElementById('overlay').style.display = 'none';
-                }
-            }, (err) => {
-                alert("位置情報の取得に失敗しました。設定を確認してください。");
-                document.getElementById('overlay').style.display = 'none';
-            }, { enableHighAccuracy: true });
-        };
-
-        function displayResult(res) {
-            const area = document.getElementById('status-message');
-            if (res.status === 'ok') {
-                area.className = "success";
-                area.innerHTML = `🎉 チェックポイント『${res.checkpointName}』を通過しました！<br>(誤差: ${res.distance}m)`;
-            } else if (res.status === 'far') {
-                area.className = "warning";
-                area.innerHTML = `📍 近くにチェックポイントがありません。<br>(最も近い『${res.checkpointName}』まであと ${res.distance}m)`;
+            } catch (error) {
+                console.error(error);
+                resultArea.textContent = '送信エラー: ' + error.message;
+                resultArea.className = 'status-msg error';
+            } finally {
+                overlay.style.display = 'none'; // ロック解除
             }
         }
 
-        window.onload = fetchStatus;
+        async function fetchStatus() {
+            const tbody = document.getElementById('pass-list');
+            try {
+                const response = await fetch(GAS_API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'getStatus', user: userName })
+                });
+                const list = await response.json();
+
+                tbody.innerHTML = '';
+                if (list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="2">まだ記録がありません</td></tr>';
+                    return;
+                }
+
+                list.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${item.name}</td><td>${item.time}</td>`;
+                    tbody.appendChild(tr);
+                });
+
+            } catch (error) {
+                console.error(error);
+                tbody.innerHTML = '<tr><td colspan="2" style="color:red">リスト読み込み失敗</td></tr>';
+            }
+        }
     </script>
 </body>
 </html>
