@@ -3,50 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPSチェックイン - ログイン</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+    <title>チェックポイント・ラリー</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; text-align: center; max-width: 600px; margin: 0 auto; }
+        select { padding: 10px; font-size: 16px; width: 100%; margin: 20px 0; }
+        button { padding: 15px; background: #007bff; color: white; border: none; border-radius: 5px; width: 100%; font-size: 18px; cursor: pointer; }
+        button:disabled { background: #ccc; }
+        #loading { display: none; color: #666; margin-top: 10px; }
+    </style>
 </head>
 <body>
-    <h1>名前選択</h1>
-    <div id="loading">読み込み中...</div>
-    <div id="main-ui" style="display:none;">
-        <label for="user-select">名前を選択してください：</label>
-        <select id="user-select"></select>
-        <button id="start-btn">開始する</button>
+    <h1>参加者選択</h1>
+    <div id="loading">データ読み込み中...</div>
+    
+    <div id="form-area" style="display:none;">
+        <select id="memberSelect">
+            <option value="">名前を選択してください</option>
+        </select>
+        <button onclick="startRally()">開始する</button>
     </div>
 
     <script>
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbwbIRIDBdKTa5XroUNPC7lU-27XyeyFaR_IbIHpIW6faGmMXUAGlHNPmK_ZoeuxcvDm/exec"; // デプロイしたURLを貼る
+        // ★ここにGASのURLを貼り付けてください
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxfwnkCY3pQy9dg3Ff5q0Wf4E8y1pUKMkQPXiphNzLwaerlxl6d2JHfPm1Az-aSDlHG/exec";
 
-        window.onload = async () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const userInUrl = urlParams.get('user');
+        document.addEventListener('DOMContentLoaded', async () => {
+            const loading = document.getElementById('loading');
+            const formArea = document.getElementById('form-area');
+            const select = document.getElementById('memberSelect');
+
+            loading.style.display = 'block';
 
             try {
-                const response = await fetch(`${GAS_URL}?action=getMembers`);
-                const members = await response.json();
-                const select = document.getElementById('user-select');
-                
-                members.forEach(m => {
-                    const opt = document.createElement('option');
-                    opt.value = m;
-                    opt.textContent = m;
-                    if (m === userInUrl) opt.selected = true;
-                    select.appendChild(opt);
+                // GASはPOSTでJSON Bodyを受け取る仕様にしたためPOSTで取得
+                const response = await fetch(GAS_API_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'getMembers' })
+                });
+                const data = await response.json();
+
+                data.members.forEach(name => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    select.appendChild(option);
                 });
 
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('main-ui').style.display = 'block';
-            } catch (e) {
-                console.log(e);
-                alert("データの取得に失敗しました。");
-            }
-        };
+                // URLパラメータ ?user=山田 があれば自動選択
+                const params = new URLSearchParams(window.location.search);
+                const userParam = params.get('user');
+                if (userParam) {
+                    select.value = userParam;
+                }
 
-        document.getElementById('start-btn').onclick = () => {
-            const user = document.getElementById('user-select').value;
-            location.href = `gps.html?user=${encodeURIComponent(user)}`;
-        };
+                formArea.style.display = 'block';
+            } catch (error) {
+                alert('通信エラー: ' + error.message);
+            } finally {
+                loading.style.display = 'none';
+            }
+        });
+
+        function startRally() {
+            const name = document.getElementById('memberSelect').value;
+            if (!name) return alert('名前を選択してください');
+            // 名前をエンコードして遷移
+            window.location.href = `gps.html?user=${encodeURIComponent(name)}`;
+        }
     </script>
 </body>
 </html>
