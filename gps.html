@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS記録</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+    <style>
+        #overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); color: white; text-align: center; padding-top: 50%; z-index: 1000; }
+        .success { color: #2ecc71; font-weight: bold; }
+        .warning { color: #e67e22; }
+    </style>
+</head>
+<body>
+    <div id="overlay">通信中...</div>
+    <h2 id="user-display">参加者：</h2>
+    
+    <button id="record-btn" style="width: 100%; height: 80px; font-size: 1.2rem;">
+        📍 現在地を確認して記録
+    </button>
+
+    <div id="status-message" style="margin-top: 20px; padding: 10px; border-radius: 5px;"></div>
+
+    <hr>
+    <h3>通過済みリスト</h3>
+    <ul id="history-list"></ul>
+
+    <script>
+        const GAS_URL = "YOUR_GAS_URL";
+        const urlParams = new URLSearchParams(window.location.search);
+        const userName = urlParams.get('user');
+
+        document.getElementById('user-display').textContent = `参加者：${userName}`;
+
+        async function fetchStatus() {
+            const res = await fetch(`${GAS_URL}?action=getStatus&user=${encodeURIComponent(userName)}`);
+            const data = await res.json();
+            const list = document.getElementById('history-list');
+            list.innerHTML = "";
+            data.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = `${item.time} - ${item.name}`;
+                list.appendChild(li);
+            });
+        }
+
+        document.getElementById('record-btn').onclick = () => {
+            document.getElementById('overlay').style.display = 'block';
+            
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                const { latitude, longitude, accuracy } = pos.coords;
+                
+                if (accuracy > 1000) {
+                    alert("GPSの精度が低すぎます（誤差1km以上）。少し移動して再試行してください。");
+                    document.getElementById('overlay').style.display = 'none';
+                    return;
+                }
+
+                try {
+                    const res = await fetch(GAS_URL, {
+                        method: "POST",
+                        body: JSON.stringify({
+                            action: "recordPass",
+                            user: userName,
+                            lat: latitude,
+                            lng: longitude
+                        })
+                    });
+                    const result = await res.json();
+                    displayResult(result);
+                    fetchStatus();
+                } catch (e) {
+                    alert("通信エラーが発生しました。");
+                } finally {
+                    document.getElementById('overlay').style.display = 'none';
+                }
+            }, (err) => {
+                alert("位置情報の取得に失敗しました。設定を確認してください。");
+                document.getElementById('overlay').style.display = 'none';
+            }, { enableHighAccuracy: true });
+        };
+
+        function displayResult(res) {
+            const area = document.getElementById('status-message');
+            if (res.status === 'ok') {
+                area.className = "success";
+                area.innerHTML = `🎉 チェックポイント『${res.checkpointName}』を通過しました！<br>(誤差: ${res.distance}m)`;
+            } else if (res.status === 'far') {
+                area.className = "warning";
+                area.innerHTML = `📍 近くにチェックポイントがありません。<br>(最も近い『${res.checkpointName}』まであと ${res.distance}m)`;
+            }
+        }
+
+        window.onload = fetchStatus;
+    </script>
+</body>
+</html>

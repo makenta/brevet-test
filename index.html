@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPSチェックイン - ログイン</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
+</head>
+<body>
+    <h1>名前選択</h1>
+    <div id="loading">読み込み中...</div>
+    <div id="main-ui" style="display:none;">
+        <label for="user-select">名前を選択してください：</label>
+        <select id="user-select"></select>
+        <button id="start-btn">開始する</button>
+    </div>
+
+    <script>
+        const GAS_URL = "YOUR_GAS_URL"; // デプロイしたURLを貼る
+
+        window.onload = async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const userInUrl = urlParams.get('user');
+
+            try {
+                const response = await fetch(`${GAS_URL}?action=getMembers`);
+                const members = await response.json();
+                const select = document.getElementById('user-select');
+                
+                members.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m;
+                    opt.textContent = m;
+                    if (m === userInUrl) opt.selected = true;
+                    select.appendChild(opt);
+                });
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('main-ui').style.display = 'block';
+            } catch (e) {
+                alert("データの取得に失敗しました。");
+            }
+        };
+
+        document.getElementById('start-btn').onclick = () => {
+            const user = document.getElementById('user-select').value;
+            location.href = `gps.html?user=${encodeURIComponent(user)}`;
+        };
+    </script>
+</body>
+</html>
